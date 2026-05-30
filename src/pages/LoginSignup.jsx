@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -6,7 +6,7 @@ import { Mail, Lock, User, GraduationCap, Compass, ArrowRight, ShieldCheck } fro
 
 export default function LoginSignup() {
   const [isLogin, setIsLogin] = useState(true);
-  const { login } = useApp();
+  const { signUp, signIn, signInWithSocial, isAuthenticated } = useApp();
   const navigate = useNavigate();
 
   // Form states
@@ -19,6 +19,14 @@ export default function LoginSignup() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  // Auto-redirect if already logged in
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleChange = (e) => {
     setFormData(prev => ({
@@ -31,9 +39,10 @@ export default function LoginSignup() {
     setFormData(prev => ({ ...prev, board: selectedBoard }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
     
     // Quick validation
     if (!formData.email || !formData.password || (!isLogin && !formData.name)) {
@@ -43,12 +52,38 @@ export default function LoginSignup() {
 
     setLoading(true);
 
-    // Simulate login API call
-    setTimeout(() => {
+    try {
+      if (isLogin) {
+        const { error: signInError } = await signIn(formData.email, formData.password);
+        if (signInError) {
+          setError(signInError.message || 'Failed to log in');
+          setLoading(false);
+        }
+      } else {
+        const { data, error: signUpError } = await signUp(formData.email, formData.password, {
+          name: formData.name,
+          grade: formData.grade,
+          board: formData.board,
+        });
+
+        if (signUpError) {
+          setError(signUpError.message || 'Failed to create account');
+          setLoading(false);
+        } else {
+          setLoading(false);
+          if (data?.session) {
+            // Auto logged in
+            navigate('/dashboard', { replace: true });
+          } else {
+            // Needs email verification
+            setSuccessMessage('Account created! Please check your email for a verification link to complete sign up.');
+          }
+        }
+      }
+    } catch (err) {
+      setError(err.message || 'An unexpected error occurred');
       setLoading(false);
-      login(); // updates app context authentication state
-      navigate('/dashboard');
-    }, 1000);
+    }
   };
 
   return (
@@ -111,7 +146,7 @@ export default function LoginSignup() {
           {/* Form Tabs */}
           <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
             <button
-              onClick={() => { setIsLogin(true); setError(''); }}
+              onClick={() => { setIsLogin(true); setError(''); setSuccessMessage(''); }}
               className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all ${
                 isLogin ? 'bg-white text-primary-600 shadow-sm' : 'text-slate-500 hover:text-slate-850'
               }`}
@@ -119,7 +154,7 @@ export default function LoginSignup() {
               LOG IN
             </button>
             <button
-              onClick={() => { setIsLogin(false); setError(''); }}
+              onClick={() => { setIsLogin(false); setError(''); setSuccessMessage(''); }}
               className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all ${
                 !isLogin ? 'bg-white text-primary-600 shadow-sm' : 'text-slate-500 hover:text-slate-850'
               }`}
@@ -131,6 +166,12 @@ export default function LoginSignup() {
           {error && (
             <div className="bg-danger-50 border border-danger-100 text-danger-600 px-4 py-3 rounded-xl text-xs font-bold">
               {error}
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="bg-emerald-50 border border-emerald-100 text-emerald-600 px-4 py-3 rounded-xl text-xs font-bold">
+              {successMessage}
             </div>
           )}
 
@@ -279,13 +320,15 @@ export default function LoginSignup() {
 
           <div className="grid grid-cols-2 gap-4">
             <button
-              onClick={() => { login(); navigate('/dashboard'); }}
+              type="button"
+              onClick={() => signInWithSocial('google')}
               className="flex items-center justify-center space-x-2 py-3 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all font-semibold text-slate-700 text-xs bg-white"
             >
               <span>Google</span>
             </button>
             <button
-              onClick={() => { login(); navigate('/dashboard'); }}
+              type="button"
+              onClick={() => signInWithSocial('azure')}
               className="flex items-center justify-center space-x-2 py-3 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all font-semibold text-slate-700 text-xs bg-white"
             >
               <span>Microsoft</span>
