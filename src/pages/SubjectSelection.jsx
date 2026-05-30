@@ -1,26 +1,45 @@
 import { Link, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import ProgressBar from '../components/ProgressBar';
-import { subjects } from '../data/mockData';
 import { BookOpen, GraduationCap, ChevronRight, Trophy } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useSubjects } from '../hooks/useSubjects';
+
+// Loading skeleton card
+function SubjectSkeleton() {
+  return (
+    <div className="bg-white rounded-3xl border border-slate-100 p-6 flex flex-col justify-between animate-pulse relative overflow-hidden h-52">
+      <div className="absolute top-0 left-0 right-0 h-1.5 bg-slate-200 rounded" />
+      <div className="space-y-3">
+        <div className="flex justify-between">
+          <div className="w-10 h-10 bg-slate-200 rounded-xl" />
+          <div className="w-20 h-4 bg-slate-100 rounded-full" />
+        </div>
+        <div className="w-3/4 h-4 bg-slate-200 rounded" />
+        <div className="w-1/2 h-3 bg-slate-100 rounded" />
+      </div>
+      <div className="space-y-2 mt-4 pt-4 border-t border-slate-50">
+        <div className="w-full h-2 bg-slate-100 rounded-full" />
+        <div className="w-full h-3 bg-slate-100 rounded" />
+      </div>
+    </div>
+  );
+}
 
 export default function SubjectSelection() {
   const navigate = useNavigate();
+  const { subjects, loading } = useSubjects();
 
-  // Aggregate stats
-  const totalChapters = subjects.reduce((sum, s) => sum + s.totalChapters, 0);
-  const completedChapters = subjects.reduce((sum, s) => sum + s.completedChapters, 0);
-  const averageProgress = Math.round(subjects.reduce((sum, s) => sum + s.progress, 0) / subjects.length);
+  // Aggregate stats — safe with empty array
+  const totalChapters = subjects.reduce((sum, s) => sum + (s.totalChapters || 0), 0);
+  const completedChapters = subjects.reduce((sum, s) => sum + (s.completedChapters || 0), 0);
+  const averageProgress = subjects.length
+    ? Math.round(subjects.reduce((sum, s) => sum + (s.progress || 0), 0) / subjects.length)
+    : 0;
 
   const container = {
     hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1
-      }
-    }
+    show: { opacity: 1, transition: { staggerChildren: 0.1 } }
   };
 
   const item = {
@@ -54,52 +73,58 @@ export default function SubjectSelection() {
         </div>
 
         {/* Subjects cards grid */}
-        <motion.div
-          variants={container}
-          initial="hidden"
-          animate="show"
-          className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6"
-        >
-          {subjects.map((subj) => (
-            <motion.div
-              key={subj.id}
-              variants={item}
-              whileHover={{ y: -6 }}
-              onClick={() => navigate(`/subjects/${subj.id}`)}
-              className="bg-white rounded-3xl shadow-card hover:shadow-card-hover border border-slate-100 p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 relative overflow-hidden group"
-            >
-              {/* Colored ribbon strip at top */}
-              <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${subj.color}`} />
-              
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-4xl select-none">{subj.icon}</span>
-                  <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    NCERT syllabus
-                  </span>
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-slate-900 leading-tight group-hover:text-primary-600 transition-colors">
-                    {subj.name}
-                  </h3>
-                  <p className="text-xs font-medium text-slate-500 mt-1">{subj.description}</p>
-                </div>
-              </div>
+        {loading ? (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => <SubjectSkeleton key={i} />)}
+          </div>
+        ) : (
+          <motion.div
+            variants={container}
+            initial="hidden"
+            animate="show"
+            className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6"
+          >
+            {subjects.map((subj) => (
+              <motion.div
+                key={subj.id}
+                variants={item}
+                whileHover={{ y: -6 }}
+                onClick={() => navigate(`/subjects/${subj.id}`)}
+                className="bg-white rounded-3xl shadow-card hover:shadow-card-hover border border-slate-100 p-6 flex flex-col justify-between cursor-pointer transition-all duration-300 relative overflow-hidden group"
+              >
+                {/* Colored ribbon strip at top */}
+                <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${subj.color}`} />
 
-              <div className="space-y-3 mt-8 pt-4 border-t border-slate-50">
-                <div className="flex justify-between items-center text-xs font-semibold">
-                  <span className="text-slate-400">Chapter completion</span>
-                  <span className="text-slate-800 font-bold">{subj.completedChapters} / {subj.totalChapters}</span>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-4xl select-none">{subj.icon}</span>
+                    <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      NCERT syllabus
+                    </span>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 leading-tight group-hover:text-primary-600 transition-colors">
+                      {subj.name}
+                    </h3>
+                    <p className="text-xs font-medium text-slate-500 mt-1">{subj.description}</p>
+                  </div>
                 </div>
-                <ProgressBar value={subj.progress} color={`bg-gradient-to-r ${subj.color}`} height="sm" animated={false} />
-                <div className="flex justify-between items-center pt-2 text-xs font-black text-primary-500 group-hover:text-primary-600 transition-colors">
-                  <span>Open chapter list</span>
-                  <ChevronRight className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
+
+                <div className="space-y-3 mt-8 pt-4 border-t border-slate-50">
+                  <div className="flex justify-between items-center text-xs font-semibold">
+                    <span className="text-slate-400">Chapter completion</span>
+                    <span className="text-slate-800 font-bold">{subj.completedChapters} / {subj.totalChapters}</span>
+                  </div>
+                  <ProgressBar value={subj.progress} color={`bg-gradient-to-r ${subj.color}`} height="sm" animated={false} />
+                  <div className="flex justify-between items-center pt-2 text-xs font-black text-primary-500 group-hover:text-primary-600 transition-colors">
+                    <span>Open chapter list</span>
+                    <ChevronRight className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
-        </motion.div>
+              </motion.div>
+            ))}
+          </motion.div>
+        )}
       </main>
     </div>
   );

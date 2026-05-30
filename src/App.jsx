@@ -12,8 +12,12 @@ import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
 import StreakRewards from './pages/StreakRewards';
 import RevisionPlanner from './pages/RevisionPlanner';
+import Admin from './pages/Admin';
 import XpPopup from './components/XpPopup';
 import ProtectedRoute from './components/ProtectedRoute';
+import Onboarding from './pages/Onboarding';
+
+
 
 function App() {
   return (
@@ -33,6 +37,8 @@ function App() {
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/streak" element={<ProtectedRoute><StreakRewards /></ProtectedRoute>} />
           <Route path="/revision" element={<ProtectedRoute><RevisionPlanner /></ProtectedRoute>} />
+          <Route path="/admin" element={<Admin />} />
+          <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />  
         </Routes>
       </Router>
     </AppProvider>

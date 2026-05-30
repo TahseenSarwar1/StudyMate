@@ -1,29 +1,34 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { quizQuestions, motivationalMessages } from '../data/mockData';
+import { motivationalMessages } from '../data/mockData';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { useQuestions } from '../hooks/useQuestions';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Flame, Shield, Award, Sparkles, Check, HelpCircle, AlertCircle, ArrowRight } from 'lucide-react';
+import { X, Flame, ArrowRight, HelpCircle } from 'lucide-react';
 
 export default function Quiz() {
   const { subjectId, chapterId } = useParams();
   const navigate = useNavigate();
-  const { addXp } = useApp();
+  const { addXp, user } = useApp();
+
+  const { questions, loading } = useQuestions(chapterId);
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState(null);
   const [isAnswerChecked, setIsAnswerChecked] = useState(false);
-  const [answersState, setAnswersState] = useState([]); // tracks correct/incorrect per question
-  
+  const [answersState, setAnswersState] = useState([]);
+
   // Timer setup (15 mins)
   const [timeLeft, setTimeLeft] = useState(900);
   const [streakCount, setStreakCount] = useState(0);
   const [motivationText, setMotivationText] = useState('');
+  const quizFinishedRef = useRef(false);
 
-  const questions = quizQuestions; // use mock questions
-  const currentQuestion = questions[currentIndex % questions.length];
+  const currentQuestion = questions[currentIndex];
 
   useEffect(() => {
+    if (loading || questions.length === 0) return;
     if (timeLeft <= 0) {
       handleFinishQuiz();
       return;
@@ -32,7 +37,7 @@ export default function Quiz() {
       setTimeLeft(prev => prev - 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, [timeLeft]);
+  }, [timeLeft, loading, questions.length]);
 
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
@@ -50,8 +55,7 @@ export default function Quiz() {
 
     const isCorrect = selectedOption === currentQuestion.correct;
     setIsAnswerChecked(true);
-    
-    // Track stats
+
     setAnswersState(prev => [...prev, {
       questionId: currentQuestion.id,
       selected: selectedOption,
@@ -62,12 +66,8 @@ export default function Quiz() {
     if (isCorrect) {
       const nextStreak = streakCount + 1;
       setStreakCount(nextStreak);
-      
-      // Select random motivational phrase
       const randomMsg = motivationalMessages[Math.floor(Math.random() * motivationalMessages.length)];
       setMotivationText(randomMsg);
-      
-      // Reward Base XP plus Streak Multiplier XP
       const baseXP = 10;
       const multiplier = nextStreak >= 3 ? 2 : 1;
       addXp(baseXP * multiplier);
@@ -81,7 +81,7 @@ export default function Quiz() {
     setSelectedOption(null);
     setIsAnswerChecked(false);
     setMotivationText('');
-    
+
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
@@ -89,27 +89,96 @@ export default function Quiz() {
     }
   };
 
-  const handleFinishQuiz = () => {
-    const correctCount = answersState.filter(a => a.isCorrect).length;
-    const scorePercentage = Math.round((correctCount / questions.length) * 100);
-    
-    // Navigate to results screen with stats payload
+  const handleFinishQuiz = async () => {
+    if (quizFinishedRef.current) return;
+    quizFinishedRef.current = true;
+
+    const allAnswers = answersState;
+    const correctCount = allAnswers.filter(a => a.isCorrect).length;
+    const totalQ = questions.length;
+    const scorePercentage = totalQ > 0 ? Math.round((correctCount / totalQ) * 100) : 0;
+    const timeTaken = 900 - timeLeft;
+    const xpEarned = Math.round((scorePercentage / 100) * 150);
+
+    // Save to Supabase if configured
+    if (isSupabaseConfigured && user?.id) {
+      try {
+        // a) Insert quiz attempt
+        await supabase.from('quiz_attempts').insert({
+          user_id: user.id,
+          chapter_id: chapterId,
+          score: scorePercentage,
+          total_questions: totalQ,
+          correct_answers: correctCount,
+          time_taken_seconds: timeTaken,
+          xp_earned: xpEarned,
+          answers: allAnswers,
+        });
+
+        // b) Upsert student chapter progress
+        await supabase.from('student_chapter_progress').upsert({
+          user_id: user.id,
+          chapter_id: chapterId,
+          progress: 100,
+          best_score: scorePercentage,
+          last_attempted_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,chapter_id' });
+
+      } catch (err) {
+        console.error('Failed to save quiz results:', err.message);
+      }
+    }
+
+    // c) Give XP via context (also persists to Supabase auth metadata)
+    addXp(xpEarned);
+
     navigate('/quiz-result', {
       state: {
         score: scorePercentage,
         correctCount,
-        wrongCount: questions.length - correctCount,
-        totalQuestions: questions.length,
-        timeTaken: 900 - timeLeft,
-        xpEarned: correctCount * 10 + (correctCount > 5 ? 50 : 0),
-        answers: answersState,
+        wrongCount: totalQ - correctCount,
+        totalQuestions: totalQ,
+        timeTaken,
+        xpEarned,
+        answers: allAnswers,
         subjectId,
         chapterId,
       }
     });
   };
 
-  const currentProgress = ((currentIndex + 1) / questions.length) * 100;
+  const currentProgress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
+
+  // Loading spinner while questions are being fetched
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center font-sans">
+        <div className="text-center space-y-4">
+          <div className="relative w-14 h-14 mx-auto">
+            <div className="absolute inset-0 rounded-full border-4 border-slate-700" />
+            <div className="absolute inset-0 rounded-full border-4 border-t-primary-500 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+          </div>
+          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest animate-pulse">Loading questions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (questions.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center font-sans">
+        <div className="text-center space-y-4">
+          <p className="text-lg font-black text-slate-300">No questions found for this chapter.</p>
+          <button
+            onClick={() => navigate(`/subjects/${subjectId}`)}
+            className="px-6 py-3 bg-primary-500 hover:bg-primary-600 rounded-xl font-bold text-sm transition-all"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between font-sans">
@@ -173,7 +242,7 @@ export default function Quiz() {
           {/* Option Grid */}
           <div className="grid gap-3">
             {currentQuestion.options.map((option, idx) => {
-              const letter = String.fromCharCode(65 + idx); // A, B, C, D
+              const letter = String.fromCharCode(65 + idx);
               const isSelected = selectedOption === idx;
               const isCorrect = idx === currentQuestion.correct;
               const isWrong = isSelected && !isCorrect;
@@ -211,8 +280,8 @@ export default function Quiz() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={`p-5 rounded-2xl border text-xs font-semibold leading-relaxed ${
-                  selectedOption === currentQuestion.correct 
-                    ? 'bg-success-950/10 border-success-900/50 text-success-350' 
+                  selectedOption === currentQuestion.correct
+                    ? 'bg-success-950/10 border-success-900/50 text-success-350'
                     : 'bg-danger-950/10 border-danger-900/50 text-danger-350'
                 }`}
               >
@@ -229,7 +298,7 @@ export default function Quiz() {
 
       {/* Interactive Bottom Feedback Panel */}
       <footer className={`p-4 sm:p-6 border-t ${
-        isAnswerChecked 
+        isAnswerChecked
           ? selectedOption === currentQuestion.correct
             ? 'bg-success-950/20 border-success-900/40 text-success-200'
             : 'bg-danger-950/20 border-danger-900/40 text-danger-200'
@@ -243,8 +312,6 @@ export default function Quiz() {
                 <span>{streakCount}x Streak!</span>
               </span>
             )}
-
-            {/* Motivational message popups */}
             {motivationText && (
               <p className="text-xs font-black text-yellow-400 tracking-wide uppercase italic">
                 {motivationText}

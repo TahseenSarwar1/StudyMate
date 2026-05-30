@@ -1,11 +1,104 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
-import { weakTopics, subjectPerformance } from '../data/mockData';
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, LineChart, Line, XAxis, CartesianGrid, Tooltip } from 'recharts';
-import { Sparkles, ArrowRight, TrendingUp, TrendingDown, Minus, Play, Plus, BookOpen } from 'lucide-react';
+import ProgressBar from '../components/ProgressBar';
+import { subjectPerformance, weakTopics as mockWeakTopics } from '../data/mockData';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { useApp } from '../context/AppContext';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
+import { Sparkles, TrendingUp, TrendingDown, Minus, Play } from 'lucide-react';
+
+// Default color mappings for subjects
+const SUBJECT_COLORS = {
+  mathematics: 'from-blue-500 to-indigo-600',
+  physics: 'from-purple-500 to-violet-600',
+  chemistry: 'from-emerald-500 to-teal-600',
+  biology: 'from-rose-500 to-pink-600',
+  english: 'from-amber-500 to-orange-600',
+  'social science': 'from-cyan-500 to-blue-600',
+};
+
+function WeakTopicSkeleton() {
+  return (
+    <div className="glass-card p-5 bg-white border border-slate-100 flex flex-col justify-between space-y-6 animate-pulse h-48">
+      <div className="space-y-3">
+        <div className="flex justify-between">
+          <div className="w-20 h-4 bg-slate-200 rounded-full" />
+          <div className="w-16 h-4 bg-slate-100 rounded" />
+        </div>
+        <div className="w-3/4 h-4 bg-slate-200 rounded" />
+        <div className="w-1/2 h-3 bg-slate-100 rounded" />
+      </div>
+      <div className="space-y-3 pt-4 border-t border-slate-50">
+        <div className="w-full h-2 bg-slate-100 rounded-full" />
+        <div className="w-full h-8 bg-slate-100 rounded-xl" />
+      </div>
+    </div>
+  );
+}
 
 export default function WeakTopics() {
+  const { user } = useApp();
+  const [weakTopics, setWeakTopics] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+
+    if (!isSupabaseConfigured) {
+      setWeakTopics(mockWeakTopics);
+      setLoading(false);
+      return;
+    }
+
+    async function fetchWeakTopics() {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('weak_topics')
+          .select(`
+            id,
+            topic_name,
+            mastery_percentage,
+            attempts,
+            last_attempted_at,
+            trend,
+            subjects(name)
+          `)
+          .eq('user_id', user.id)
+          .order('mastery_percentage', { ascending: true })
+          .limit(6);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const mapped = data.map(row => ({
+            id: row.id,
+            subject: row.subjects?.name || 'Unknown',
+            topic: row.topic_name,
+            mastery: row.mastery_percentage ?? 0,
+            attempts: row.attempts ?? 0,
+            lastAttempt: row.last_attempted_at ? row.last_attempted_at.split('T')[0] : 'N/A',
+            trend: row.trend || 'stable',
+            color: SUBJECT_COLORS[(row.subjects?.name || '').toLowerCase()] || 'from-blue-500 to-indigo-600',
+          }));
+          setWeakTopics(mapped);
+        } else {
+          // New user — show empty state (not mock data)
+          setWeakTopics([]);
+        }
+      } catch (err) {
+        console.error('WeakTopics fetch error:', err.message);
+        setWeakTopics(mockWeakTopics);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchWeakTopics();
+  }, [user?.id]);
+
   const getTrendIcon = (tr) => {
     if (tr === 'improving') return <TrendingUp className="w-4 h-4 text-success-500 mr-1" />;
     if (tr === 'declining') return <TrendingDown className="w-4 h-4 text-danger-500 mr-1" />;
@@ -13,9 +106,9 @@ export default function WeakTopics() {
   };
 
   const aiRecommendations = [
-    { id: 'rec1', text: 'Practicing **Quadratic Equations** formulas could raise your Math grade by 12%.', action: 'Practice Now' },
-    { id: 'rec2', text: 'You missed 2 questions on electromagnetism in **Electricity**. Try card review.', action: 'Review Cards' },
-    { id: 'rec3', text: 'Chemistry **Carbon Compounds** concepts are dropping. Set a revision calendar.', action: 'Schedule' },
+    { id: 'rec1', text: 'Practicing <strong>Quadratic Equations</strong> formulas could raise your Math grade by 12%.', action: 'Practice Now' },
+    { id: 'rec2', text: 'You missed 2 questions on electromagnetism in <strong>Electricity</strong>. Try card review.', action: 'Review Cards' },
+    { id: 'rec3', text: 'Chemistry <strong>Carbon Compounds</strong> concepts are dropping. Set a revision calendar.', action: 'Schedule' },
   ];
 
   return (
@@ -80,39 +173,55 @@ export default function WeakTopics() {
           {/* Weak Topics Grid */}
           <div className="space-y-4">
             <h4 className="text-sm font-bold text-surface-850 uppercase tracking-wider">Identified Weak Areas</h4>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {weakTopics.map((topic) => (
-                <div key={topic.id} className="glass-card p-5 bg-white border border-slate-100 hover:border-primary-100 transition-all flex flex-col justify-between space-y-6">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-start">
-                      <span className="text-[9px] font-black text-primary-500 bg-primary-50 px-2 py-0.5 rounded-full border border-primary-100">
-                        {topic.subject}
-                      </span>
-                      <div className="flex items-center text-[10px] font-black text-slate-500">
-                        {getTrendIcon(topic.trend)}
-                        <span className="capitalize">{topic.trend}</span>
+
+            {loading ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[...Array(6)].map((_, i) => <WeakTopicSkeleton key={i} />)}
+              </div>
+            ) : weakTopics.length === 0 ? (
+              <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 text-slate-400">
+                <div className="text-4xl mb-3">🎉</div>
+                <p className="font-black text-slate-600 text-sm">No weak topics yet!</p>
+                <p className="text-xs font-medium mt-1">Complete some quizzes and we'll track your weak areas here.</p>
+                <Link to="/subjects" className="mt-4 inline-block px-6 py-2.5 bg-primary-500 text-white text-xs font-black rounded-xl shadow-sm">
+                  Start a Quiz
+                </Link>
+              </div>
+            ) : (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {weakTopics.map((topic) => (
+                  <div key={topic.id} className="glass-card p-5 bg-white border border-slate-100 hover:border-primary-100 transition-all flex flex-col justify-between space-y-6">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[9px] font-black text-primary-500 bg-primary-50 px-2 py-0.5 rounded-full border border-primary-100">
+                          {topic.subject}
+                        </span>
+                        <div className="flex items-center text-[10px] font-black text-slate-500">
+                          {getTrendIcon(topic.trend)}
+                          <span className="capitalize">{topic.trend}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-slate-900">{topic.topic}</h3>
+                        <p className="text-[10px] font-bold text-slate-400 mt-1">Attempts: {topic.attempts} quizzes • Last: {topic.lastAttempt}</p>
                       </div>
                     </div>
-                    <div>
-                      <h3 className="text-sm font-black text-slate-900">{topic.topic}</h3>
-                      <p className="text-[10px] font-bold text-slate-400 mt-1">Attempts: {topic.attempts} quizzes • Last: {topic.lastAttempt}</p>
-                    </div>
-                  </div>
 
-                  <div className="space-y-4 pt-4 border-t border-slate-50">
-                    <div className="flex justify-between items-center text-xs font-bold">
-                      <span className="text-slate-450">Mastery Level</span>
-                      <span className="text-danger-500">{topic.mastery}%</span>
+                    <div className="space-y-4 pt-4 border-t border-slate-50">
+                      <div className="flex justify-between items-center text-xs font-bold">
+                        <span className="text-slate-450">Mastery Level</span>
+                        <span className="text-danger-500">{topic.mastery}%</span>
+                      </div>
+                      <ProgressBar value={topic.mastery} color="bg-danger-500" height="sm" animated={false} />
+                      <Link to="/subjects" className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-[10px] font-black rounded-xl text-slate-700 transition-colors flex items-center justify-center space-x-1">
+                        <Play className="w-3 h-3 fill-slate-700 text-slate-700" />
+                        <span>Start Topic Drills</span>
+                      </Link>
                     </div>
-                    <ProgressBar value={topic.mastery} color="bg-danger-500" height="sm" animated={false} />
-                    <Link to="/subjects" className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-[10px] font-black rounded-xl text-slate-700 transition-colors flex items-center justify-center space-x-1">
-                      <Play className="w-3 h-3 fill-slate-700 text-slate-700" />
-                      <span>Start Topic Drills</span>
-                    </Link>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </main>
       </div>
